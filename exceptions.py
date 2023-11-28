@@ -1,166 +1,141 @@
-import typing as t
+"""
+requests.exceptions
+~~~~~~~~~~~~~~~~~~~
 
-if t.TYPE_CHECKING:
-    from .runtime import Undefined
+This module contains the set of Requests' exceptions.
+"""
+from pip._vendor.urllib3.exceptions import HTTPError as BaseHTTPError
 
-
-class TemplateError(Exception):
-    """Baseclass for all template errors."""
-
-    def __init__(self, message: t.Optional[str] = None) -> None:
-        super().__init__(message)
-
-    @property
-    def message(self) -> t.Optional[str]:
-        return self.args[0] if self.args else None
+from .compat import JSONDecodeError as CompatJSONDecodeError
 
 
-class TemplateNotFound(IOError, LookupError, TemplateError):
-    """Raised if a template does not exist.
-
-    .. versionchanged:: 2.11
-        If the given name is :class:`Undefined` and no message was
-        provided, an :exc:`UndefinedError` is raised.
+class RequestException(IOError):
+    """There was an ambiguous exception that occurred while handling your
+    request.
     """
 
-    # Silence the Python warning about message being deprecated since
-    # it's not valid here.
-    message: t.Optional[str] = None
-
-    def __init__(
-        self,
-        name: t.Optional[t.Union[str, "Undefined"]],
-        message: t.Optional[str] = None,
-    ) -> None:
-        IOError.__init__(self, name)
-
-        if message is None:
-            from .runtime import Undefined
-
-            if isinstance(name, Undefined):
-                name._fail_with_undefined_error()
-
-            message = name
-
-        self.message = message
-        self.name = name
-        self.templates = [name]
-
-    def __str__(self) -> str:
-        return str(self.message)
+    def __init__(self, *args, **kwargs):
+        """Initialize RequestException with `request` and `response` objects."""
+        response = kwargs.pop("response", None)
+        self.response = response
+        self.request = kwargs.pop("request", None)
+        if response is not None and not self.request and hasattr(response, "request"):
+            self.request = self.response.request
+        super().__init__(*args, **kwargs)
 
 
-class TemplatesNotFound(TemplateNotFound):
-    """Like :class:`TemplateNotFound` but raised if multiple templates
-    are selected.  This is a subclass of :class:`TemplateNotFound`
-    exception, so just catching the base exception will catch both.
-
-    .. versionchanged:: 2.11
-        If a name in the list of names is :class:`Undefined`, a message
-        about it being undefined is shown rather than the empty string.
-
-    .. versionadded:: 2.2
-    """
-
-    def __init__(
-        self,
-        names: t.Sequence[t.Union[str, "Undefined"]] = (),
-        message: t.Optional[str] = None,
-    ) -> None:
-        if message is None:
-            from .runtime import Undefined
-
-            parts = []
-
-            for name in names:
-                if isinstance(name, Undefined):
-                    parts.append(name._undefined_message)
-                else:
-                    parts.append(name)
-
-            parts_str = ", ".join(map(str, parts))
-            message = f"none of the templates given were found: {parts_str}"
-
-        super().__init__(names[-1] if names else None, message)
-        self.templates = list(names)
+class InvalidJSONError(RequestException):
+    """A JSON error occurred."""
 
 
-class TemplateSyntaxError(TemplateError):
-    """Raised to tell the user that there is a problem with the template."""
+class JSONDecodeError(InvalidJSONError, CompatJSONDecodeError):
+    """Couldn't decode the text into json"""
 
-    def __init__(
-        self,
-        message: str,
-        lineno: int,
-        name: t.Optional[str] = None,
-        filename: t.Optional[str] = None,
-    ) -> None:
-        super().__init__(message)
-        self.lineno = lineno
-        self.name = name
-        self.filename = filename
-        self.source: t.Optional[str] = None
-
-        # this is set to True if the debug.translate_syntax_error
-        # function translated the syntax error into a new traceback
-        self.translated = False
-
-    def __str__(self) -> str:
-        # for translated errors we only return the message
-        if self.translated:
-            return t.cast(str, self.message)
-
-        # otherwise attach some stuff
-        location = f"line {self.lineno}"
-        name = self.filename or self.name
-        if name:
-            location = f'File "{name}", {location}'
-        lines = [t.cast(str, self.message), "  " + location]
-
-        # if the source is set, add the line to the output
-        if self.source is not None:
-            try:
-                line = self.source.splitlines()[self.lineno - 1]
-            except IndexError:
-                pass
-            else:
-                lines.append("    " + line.strip())
-
-        return "\n".join(lines)
-
-    def __reduce__(self):  # type: ignore
-        # https://bugs.python.org/issue1692335 Exceptions that take
-        # multiple required arguments have problems with pickling.
-        # Without this, raises TypeError: __init__() missing 1 required
-        # positional argument: 'lineno'
-        return self.__class__, (self.message, self.lineno, self.name, self.filename)
+    def __init__(self, *args, **kwargs):
+        """
+        Construct the JSONDecodeError instance first with all
+        args. Then use it's args to construct the IOError so that
+        the json specific args aren't used as IOError specific args
+        and the error message from JSONDecodeError is preserved.
+        """
+        CompatJSONDecodeError.__init__(self, *args)
+        InvalidJSONError.__init__(self, *self.args, **kwargs)
 
 
-class TemplateAssertionError(TemplateSyntaxError):
-    """Like a template syntax error, but covers cases where something in the
-    template caused an error at compile time that wasn't necessarily caused
-    by a syntax error.  However it's a direct subclass of
-    :exc:`TemplateSyntaxError` and has the same attributes.
+class HTTPError(RequestException):
+    """An HTTP error occurred."""
+
+
+class ConnectionError(RequestException):
+    """A Connection error occurred."""
+
+
+class ProxyError(ConnectionError):
+    """A proxy error occurred."""
+
+
+class SSLError(ConnectionError):
+    """An SSL error occurred."""
+
+
+class Timeout(RequestException):
+    """The request timed out.
+
+    Catching this error will catch both
+    :exc:`~requests.exceptions.ConnectTimeout` and
+    :exc:`~requests.exceptions.ReadTimeout` errors.
     """
 
 
-class TemplateRuntimeError(TemplateError):
-    """A generic runtime error in the template engine.  Under some situations
-    Jinja may raise this exception.
+class ConnectTimeout(ConnectionError, Timeout):
+    """The request timed out while trying to connect to the remote server.
+
+    Requests that produced this error are safe to retry.
     """
 
 
-class UndefinedError(TemplateRuntimeError):
-    """Raised if a template tries to operate on :class:`Undefined`."""
+class ReadTimeout(Timeout):
+    """The server did not send any data in the allotted amount of time."""
 
 
-class SecurityError(TemplateRuntimeError):
-    """Raised if a template tries to do something insecure if the
-    sandbox is enabled.
-    """
+class URLRequired(RequestException):
+    """A valid URL is required to make a request."""
 
 
-class FilterArgumentError(TemplateRuntimeError):
-    """This error is raised if a filter was called with inappropriate
-    arguments
-    """
+class TooManyRedirects(RequestException):
+    """Too many redirects."""
+
+
+class MissingSchema(RequestException, ValueError):
+    """The URL scheme (e.g. http or https) is missing."""
+
+
+class InvalidSchema(RequestException, ValueError):
+    """The URL scheme provided is either invalid or unsupported."""
+
+
+class InvalidURL(RequestException, ValueError):
+    """The URL provided was somehow invalid."""
+
+
+class InvalidHeader(RequestException, ValueError):
+    """The header value provided was somehow invalid."""
+
+
+class InvalidProxyURL(InvalidURL):
+    """The proxy URL provided is invalid."""
+
+
+class ChunkedEncodingError(RequestException):
+    """The server declared chunked encoding but sent an invalid chunk."""
+
+
+class ContentDecodingError(RequestException, BaseHTTPError):
+    """Failed to decode response content."""
+
+
+class StreamConsumedError(RequestException, TypeError):
+    """The content for this response was already consumed."""
+
+
+class RetryError(RequestException):
+    """Custom retries logic failed"""
+
+
+class UnrewindableBodyError(RequestException):
+    """Requests encountered an error when trying to rewind a body."""
+
+
+# Warnings
+
+
+class RequestsWarning(Warning):
+    """Base warning for Requests."""
+
+
+class FileModeWarning(RequestsWarning, DeprecationWarning):
+    """A file was opened in text mode, but Requests determined its binary length."""
+
+
+class RequestsDependencyWarning(RequestsWarning):
+    """An imported dependency doesn't match the expected version range."""

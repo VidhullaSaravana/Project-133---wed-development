@@ -1,223 +1,157 @@
-"""Base API."""
-from __future__ import annotations
+"""
+requests.api
+~~~~~~~~~~~~
 
-import os
-from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import TYPE_CHECKING
+This module implements the Requests API.
 
-if TYPE_CHECKING:
-    import sys
+:copyright: (c) 2012 by Kenneth Reitz.
+:license: Apache2, see LICENSE for more details.
+"""
 
-    if sys.version_info >= (3, 8):  # pragma: no cover (py38+)
-        from typing import Literal
-    else:  # pragma: no cover (py38+)
-        from pip._vendor.typing_extensions import Literal
+from . import sessions
 
 
-class PlatformDirsABC(ABC):
-    """Abstract base class for platform directories."""
+def request(method, url, **kwargs):
+    """Constructs and sends a :class:`Request <Request>`.
 
-    def __init__(  # noqa: PLR0913
-        self,
-        appname: str | None = None,
-        appauthor: str | None | Literal[False] = None,
-        version: str | None = None,
-        roaming: bool = False,  # noqa: FBT001, FBT002
-        multipath: bool = False,  # noqa: FBT001, FBT002
-        opinion: bool = True,  # noqa: FBT001, FBT002
-        ensure_exists: bool = False,  # noqa: FBT001, FBT002
-    ) -> None:
-        """
-        Create a new platform directory.
+    :param method: method for the new :class:`Request` object: ``GET``, ``OPTIONS``, ``HEAD``, ``POST``, ``PUT``, ``PATCH``, or ``DELETE``.
+    :param url: URL for the new :class:`Request` object.
+    :param params: (optional) Dictionary, list of tuples or bytes to send
+        in the query string for the :class:`Request`.
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like
+        object to send in the body of the :class:`Request`.
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`.
+    :param headers: (optional) Dictionary of HTTP Headers to send with the :class:`Request`.
+    :param cookies: (optional) Dict or CookieJar object to send with the :class:`Request`.
+    :param files: (optional) Dictionary of ``'name': file-like-objects`` (or ``{'name': file-tuple}``) for multipart encoding upload.
+        ``file-tuple`` can be a 2-tuple ``('filename', fileobj)``, 3-tuple ``('filename', fileobj, 'content_type')``
+        or a 4-tuple ``('filename', fileobj, 'content_type', custom_headers)``, where ``'content-type'`` is a string
+        defining the content type of the given file and ``custom_headers`` a dict-like object containing additional headers
+        to add for the file.
+    :param auth: (optional) Auth tuple to enable Basic/Digest/Custom HTTP Auth.
+    :param timeout: (optional) How many seconds to wait for the server to send data
+        before giving up, as a float, or a :ref:`(connect timeout, read
+        timeout) <timeouts>` tuple.
+    :type timeout: float or tuple
+    :param allow_redirects: (optional) Boolean. Enable/disable GET/OPTIONS/POST/PUT/PATCH/DELETE/HEAD redirection. Defaults to ``True``.
+    :type allow_redirects: bool
+    :param proxies: (optional) Dictionary mapping protocol to the URL of the proxy.
+    :param verify: (optional) Either a boolean, in which case it controls whether we verify
+            the server's TLS certificate, or a string, in which case it must be a path
+            to a CA bundle to use. Defaults to ``True``.
+    :param stream: (optional) if ``False``, the response content will be immediately downloaded.
+    :param cert: (optional) if String, path to ssl client cert file (.pem). If Tuple, ('cert', 'key') pair.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
 
-        :param appname: See `appname`.
-        :param appauthor: See `appauthor`.
-        :param version: See `version`.
-        :param roaming: See `roaming`.
-        :param multipath: See `multipath`.
-        :param opinion: See `opinion`.
-        :param ensure_exists: See `ensure_exists`.
-        """
-        self.appname = appname  #: The name of application.
-        self.appauthor = appauthor
-        """
-        The name of the app author or distributing body for this application. Typically, it is the owning company name.
-        Defaults to `appname`. You may pass ``False`` to disable it.
-        """
-        self.version = version
-        """
-        An optional version path element to append to the path. You might want to use this if you want multiple versions
-        of your app to be able to run independently. If used, this would typically be ``<major>.<minor>``.
-        """
-        self.roaming = roaming
-        """
-        Whether to use the roaming appdata directory on Windows. That means that for users on a Windows network setup
-        for roaming profiles, this user data will be synced on login (see
-        `here <http://technet.microsoft.com/en-us/library/cc766489(WS.10).aspx>`_).
-        """
-        self.multipath = multipath
-        """
-        An optional parameter only applicable to Unix/Linux which indicates that the entire list of data dirs should be
-        returned. By default, the first item would only be returned.
-        """
-        self.opinion = opinion  #: A flag to indicating to use opinionated values.
-        self.ensure_exists = ensure_exists
-        """
-        Optionally create the directory (and any missing parents) upon access if it does not exist.
-        By default, no directories are created.
-        """
+    Usage::
 
-    def _append_app_name_and_version(self, *base: str) -> str:
-        params = list(base[1:])
-        if self.appname:
-            params.append(self.appname)
-            if self.version:
-                params.append(self.version)
-        path = os.path.join(base[0], *params)  # noqa: PTH118
-        self._optionally_create_directory(path)
-        return path
+      >>> import requests
+      >>> req = requests.request('GET', 'https://httpbin.org/get')
+      >>> req
+      <Response [200]>
+    """
 
-    def _optionally_create_directory(self, path: str) -> None:
-        if self.ensure_exists:
-            Path(path).mkdir(parents=True, exist_ok=True)
+    # By using the 'with' statement we are sure the session is closed, thus we
+    # avoid leaving sockets open which can trigger a ResourceWarning in some
+    # cases, and look like a memory leak in others.
+    with sessions.Session() as session:
+        return session.request(method=method, url=url, **kwargs)
 
-    @property
-    @abstractmethod
-    def user_data_dir(self) -> str:
-        """:return: data directory tied to the user"""
 
-    @property
-    @abstractmethod
-    def site_data_dir(self) -> str:
-        """:return: data directory shared by users"""
+def get(url, params=None, **kwargs):
+    r"""Sends a GET request.
 
-    @property
-    @abstractmethod
-    def user_config_dir(self) -> str:
-        """:return: config directory tied to the user"""
+    :param url: URL for the new :class:`Request` object.
+    :param params: (optional) Dictionary, list of tuples or bytes to send
+        in the query string for the :class:`Request`.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    @abstractmethod
-    def site_config_dir(self) -> str:
-        """:return: config directory shared by the users"""
+    return request("get", url, params=params, **kwargs)
 
-    @property
-    @abstractmethod
-    def user_cache_dir(self) -> str:
-        """:return: cache directory tied to the user"""
 
-    @property
-    @abstractmethod
-    def site_cache_dir(self) -> str:
-        """:return: cache directory shared by users"""
+def options(url, **kwargs):
+    r"""Sends an OPTIONS request.
 
-    @property
-    @abstractmethod
-    def user_state_dir(self) -> str:
-        """:return: state directory tied to the user"""
+    :param url: URL for the new :class:`Request` object.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    @abstractmethod
-    def user_log_dir(self) -> str:
-        """:return: log directory tied to the user"""
+    return request("options", url, **kwargs)
 
-    @property
-    @abstractmethod
-    def user_documents_dir(self) -> str:
-        """:return: documents directory tied to the user"""
 
-    @property
-    @abstractmethod
-    def user_downloads_dir(self) -> str:
-        """:return: downloads directory tied to the user"""
+def head(url, **kwargs):
+    r"""Sends a HEAD request.
 
-    @property
-    @abstractmethod
-    def user_pictures_dir(self) -> str:
-        """:return: pictures directory tied to the user"""
+    :param url: URL for the new :class:`Request` object.
+    :param \*\*kwargs: Optional arguments that ``request`` takes. If
+        `allow_redirects` is not provided, it will be set to `False` (as
+        opposed to the default :meth:`request` behavior).
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    @abstractmethod
-    def user_videos_dir(self) -> str:
-        """:return: videos directory tied to the user"""
+    kwargs.setdefault("allow_redirects", False)
+    return request("head", url, **kwargs)
 
-    @property
-    @abstractmethod
-    def user_music_dir(self) -> str:
-        """:return: music directory tied to the user"""
 
-    @property
-    @abstractmethod
-    def user_runtime_dir(self) -> str:
-        """:return: runtime directory tied to the user"""
+def post(url, data=None, json=None, **kwargs):
+    r"""Sends a POST request.
 
-    @property
-    def user_data_path(self) -> Path:
-        """:return: data path tied to the user"""
-        return Path(self.user_data_dir)
+    :param url: URL for the new :class:`Request` object.
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like
+        object to send in the body of the :class:`Request`.
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    def site_data_path(self) -> Path:
-        """:return: data path shared by users"""
-        return Path(self.site_data_dir)
+    return request("post", url, data=data, json=json, **kwargs)
 
-    @property
-    def user_config_path(self) -> Path:
-        """:return: config path tied to the user"""
-        return Path(self.user_config_dir)
 
-    @property
-    def site_config_path(self) -> Path:
-        """:return: config path shared by the users"""
-        return Path(self.site_config_dir)
+def put(url, data=None, **kwargs):
+    r"""Sends a PUT request.
 
-    @property
-    def user_cache_path(self) -> Path:
-        """:return: cache path tied to the user"""
-        return Path(self.user_cache_dir)
+    :param url: URL for the new :class:`Request` object.
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like
+        object to send in the body of the :class:`Request`.
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    def site_cache_path(self) -> Path:
-        """:return: cache path shared by users"""
-        return Path(self.site_cache_dir)
+    return request("put", url, data=data, **kwargs)
 
-    @property
-    def user_state_path(self) -> Path:
-        """:return: state path tied to the user"""
-        return Path(self.user_state_dir)
 
-    @property
-    def user_log_path(self) -> Path:
-        """:return: log path tied to the user"""
-        return Path(self.user_log_dir)
+def patch(url, data=None, **kwargs):
+    r"""Sends a PATCH request.
 
-    @property
-    def user_documents_path(self) -> Path:
-        """:return: documents path tied to the user"""
-        return Path(self.user_documents_dir)
+    :param url: URL for the new :class:`Request` object.
+    :param data: (optional) Dictionary, list of tuples, bytes, or file-like
+        object to send in the body of the :class:`Request`.
+    :param json: (optional) A JSON serializable Python object to send in the body of the :class:`Request`.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    def user_downloads_path(self) -> Path:
-        """:return: downloads path tied to the user"""
-        return Path(self.user_downloads_dir)
+    return request("patch", url, data=data, **kwargs)
 
-    @property
-    def user_pictures_path(self) -> Path:
-        """:return: pictures path tied to the user"""
-        return Path(self.user_pictures_dir)
 
-    @property
-    def user_videos_path(self) -> Path:
-        """:return: videos path tied to the user"""
-        return Path(self.user_videos_dir)
+def delete(url, **kwargs):
+    r"""Sends a DELETE request.
 
-    @property
-    def user_music_path(self) -> Path:
-        """:return: music path tied to the user"""
-        return Path(self.user_music_dir)
+    :param url: URL for the new :class:`Request` object.
+    :param \*\*kwargs: Optional arguments that ``request`` takes.
+    :return: :class:`Response <Response>` object
+    :rtype: requests.Response
+    """
 
-    @property
-    def user_runtime_path(self) -> Path:
-        """:return: runtime path tied to the user"""
-        return Path(self.user_runtime_dir)
+    return request("delete", url, **kwargs)
